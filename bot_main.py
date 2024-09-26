@@ -19,7 +19,8 @@ CHAIN_SELECTION, WALLET_INPUT = range(2)
 async def start(update: Update, context: CallbackContext) -> int:
     reply_keyboard = [['ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism', 'base']]
     await update.message.reply_text(
-        'Chào bạn! Hãy chọn chain bạn muốn kiểm tra:',
+        'Chọn chain bạn muốn kiểm tra: \n'
+        'click "Cancel" để dừng thao tác.' ,
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
     )
     return CHAIN_SELECTION
