@@ -1,6 +1,7 @@
-﻿import logging
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackContext
+﻿import asyncio
+import logging
+from telegram import ReplyKeyboardMarkup, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackContext, CallbackQueryHandler
 from bot_api import get_token_balances, chain_apis
 from config import telegrambot_token
 
@@ -9,7 +10,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-
 logger = logging.getLogger(__name__)
 
 # Định nghĩa các trạng thái cho ConversationHandler
@@ -34,28 +34,19 @@ async def chain_selection(update: Update, context: CallbackContext) -> int:
         return CHAIN_SELECTION
     context.user_data['chain'] = chain
     context.user_data['cancelled'] = False  # Reset cancellation flag
+
     await update.message.reply_text('Vui lòng nhập các địa chỉ ví, mỗi ví trên một dòng:')
     return WALLET_INPUT
 
-async def wallet_input(update: Update, context: CallbackContext) -> int:
-    user = update.message.from_user
-    wallets_text = update.message.text
-    wallets = wallets_text.strip().split('\n')
-    wallets = [wallet.strip() for wallet in wallets if wallet.strip()]
-    logger.info("Wallets input by %s: %s", user.first_name, wallets)
-
-    chain = context.user_data['chain']
-    api_info = chain_apis[chain]
-    api_key = api_info['api_key']
-    chain_url = api_info['url']
-
+# Hàm kiểm tra danh sách ví
+async def wallet_checker(context: CallbackContext, wallets, chain, api_key, chain_url):
     total_wallets = len(wallets)
     for index, address in enumerate(wallets, start=1):
-        # Check for cancellation
+        # Kiểm tra cờ hủy bỏ
         if context.user_data.get('cancelled', False):
-            await update.message.reply_text('Đã hủy bỏ thao tác.')
-            return ConversationHandler.END
-        
+            await context.bot.send_message(chat_id=context.user_data['chat_id'], text='Đã hủy bỏ thao tác.')
+            return
+
         try:
             token_balances = get_token_balances(api_key, address, chain_url)
             message = f"Ví {index}/{total_wallets}: {address}\n"
@@ -68,26 +59,68 @@ async def wallet_input(update: Update, context: CallbackContext) -> int:
         except Exception as e:
             message = f"Đã xảy ra lỗi khi lấy thông tin cho ví {address}: {str(e)}"
         
-        # Gửi thông tin sau khi xử lý mỗi ví
-        await update.message.reply_text(message)
+        # Hiển thị thông tin và nút "Cancel"
+        cancel_button = [[InlineKeyboardButton("Cancel", callback_data="cancel")]]
+        reply_markup = InlineKeyboardMarkup(cancel_button)
 
-    # Thông báo gửi xong
-    await update.message.reply_text("Đã xử lý xong tất cả các ví.")
+        await context.bot.send_message(chat_id=context.user_data['chat_id'], text=message, reply_markup=reply_markup)
 
-    # Kết thúc conversation
+        # Thêm khoảng dừng để kiểm tra
+        await asyncio.sleep(0.2)
+
+# Hàm xử lý danh sách ví
+async def wallet_input(update: Update, context: CallbackContext) -> int:
+    user = update.message.from_user
+    wallets_text = update.message.text
+    wallets = wallets_text.strip().split('\n')
+    wallets = [wallet.strip() for wallet in wallets if wallet.strip()]
+    logger.info("Wallets input by %s: %s", user.first_name, wallets)
+
+    chain = context.user_data['chain']
+    api_info = chain_apis[chain]
+    api_key = api_info['api_key']
+    chain_url = api_info['url']
+
+    # Lưu thông tin chat_id để sử dụng trong task
+    context.user_data['chat_id'] = update.message.chat_id
+
+    # Khởi động task kiểm tra ví
+    context.user_data['wallet_task'] = asyncio.create_task(wallet_checker(context, wallets, chain, api_key, chain_url))
+
     return ConversationHandler.END
 
-# Hàm hủy bỏ
+# Hàm hủy bỏ khi nhấn nút "Cancel"
+async def cancel_callback(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    # Đặt cờ cancelled để dừng quá trình xử lý
+    context.user_data['cancelled'] = True
+
+    # Hủy task kiểm tra ví nếu đang chạy
+    wallet_task = context.user_data.get('wallet_task')
+    if wallet_task:
+        wallet_task.cancel()
+
+    await query.edit_message_text('Đã hủy bỏ thao tác.')
+    return ConversationHandler.END
+
+# Hàm hủy bỏ qua lệnh /cancel
 async def cancel(update: Update, context: CallbackContext) -> int:
     context.user_data['cancelled'] = True
+    # Hủy task kiểm tra ví nếu đang chạy
+    wallet_task = context.user_data.get('wallet_task')
+    if wallet_task:
+        wallet_task.cancel()
+
     await update.message.reply_text('Đã hủy bỏ thao tác.')
     return ConversationHandler.END
 
 def main():
-    # Replace 'YOUR_TELEGRAM_BOT_TOKEN' with your bot's token
+    # Khởi tạo bot với token
     application = Application.builder().token(telegrambot_token).build()
 
-    # ConversationHandler with states
+    # ConversationHandler với các trạng thái
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
@@ -97,9 +130,13 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
 
+    # Thêm callback handler cho nút "Cancel"
+    application.add_handler(CallbackQueryHandler(cancel_callback, pattern="cancel"))
+
+    # Thêm conversation handler
     application.add_handler(conv_handler)
 
-    # Start the bot
+    # Bắt đầu bot
     application.run_polling()
 
 if __name__ == '__main__':
