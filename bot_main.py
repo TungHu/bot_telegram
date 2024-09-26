@@ -41,19 +41,28 @@ async def chain_selection(update: Update, context: CallbackContext) -> int:
 # Hàm kiểm tra danh sách ví
 async def wallet_checker(context: CallbackContext, wallets, chain, api_key, chain_url):
     total_wallets = len(wallets)
+    token_summary = {}  # Biến để lưu tổng số token
+    wallets_with_tokens = 0  # Đếm số ví có token
+
     for index, address in enumerate(wallets, start=1):
         # Kiểm tra cờ hủy bỏ
         if context.user_data.get('cancelled', False):
             await context.bot.send_message(chat_id=context.user_data['chat_id'], text='Đã hủy bỏ thao tác.')
-            return
+            break
 
         try:
             token_balances = get_token_balances(api_key, address, chain_url)
             message = f"Ví {index}/{total_wallets}: {address}\n"
             if token_balances:
                 message += "Token balances:\n"
+                wallets_with_tokens += 1
                 for token, balance in token_balances.items():
                     message += f"- {token}: {balance}\n"
+                    # Cộng dồn số lượng token vào token_summary
+                    if token in token_summary:
+                        token_summary[token] += balance
+                    else:
+                        token_summary[token] = balance
             else:
                 message += "Không có token nào hoặc không lấy được thông tin.\n"
         except Exception as e:
@@ -66,7 +75,20 @@ async def wallet_checker(context: CallbackContext, wallets, chain, api_key, chai
         await context.bot.send_message(chat_id=context.user_data['chat_id'], text=message, reply_markup=reply_markup)
 
         # Thêm khoảng dừng để kiểm tra
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(2)
+
+    # Tổng hợp và gửi kết quả sau khi kiểm tra xong hoặc bị dừng
+    summary_message = f"Đã kiểm tra xong {index} ví.\n"
+    summary_message += f"{wallets_with_tokens}/{total_wallets} ví có token.\n\n"
+    
+    if token_summary:
+        summary_message += "Tổng token thu thập được:\n"
+        for token, total_balance in token_summary.items():
+            summary_message += f"- {token}: {total_balance}\n"
+    else:
+        summary_message += "Không có token nào được tìm thấy."
+
+    await context.bot.send_message(chat_id=context.user_data['chat_id'], text=summary_message)
 
 # Hàm xử lý danh sách ví
 async def wallet_input(update: Update, context: CallbackContext) -> int:
