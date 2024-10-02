@@ -2,7 +2,7 @@
 import logging
 from telegram import ReplyKeyboardMarkup, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackContext, CallbackQueryHandler
-from bot_api import get_token_balances, chain_apis
+from bot_api import get_asset_data, get_token_balances, chain_apis
 from config import telegrambot_token
 
 # Bật logging
@@ -17,10 +17,13 @@ CHAIN_SELECTION, WALLET_INPUT = range(2)
 
 # Hàm bắt đầu bot
 async def start(update: Update, context: CallbackContext) -> int:
-    reply_keyboard = [['ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism', 'base']]
+    reply_keyboard = [
+        ['ethereum', 'bsc', 'arbitrum', 'polygon', 'optimism', 'base'],
+        ['get_asset_data']  # Thêm tùy chọn để gọi hàm get_asset_data
+    ]
     await update.message.reply_text(
-        'Chọn chain bạn muốn kiểm tra: \n'
-        'click "Cancel" để dừng thao tác.' ,
+        'Chọn chain bạn muốn kiểm tra hoặc chọn "get_asset_data" để lấy dữ liệu tài sản từ ví:\n'
+        'click "Cancel" để dừng thao tác.',
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
     )
     return CHAIN_SELECTION
@@ -30,17 +33,25 @@ async def chain_selection(update: Update, context: CallbackContext) -> int:
     user = update.message.from_user
     chain = update.message.text.lower()
     logger.info("Chain selected by %s: %s", user.first_name, chain)
+
+    if chain == 'get_asset_data':
+        await update.message.reply_text('Vui lòng nhập các địa chỉ ví, mỗi ví trên một dòng:')
+        context.user_data['get_asset_data'] = True  # Đặt cờ để xác định người dùng chọn hàm get_asset_data
+        return WALLET_INPUT
+
     if chain not in chain_apis:
         await update.message.reply_text('Chain không hợp lệ. Vui lòng chọn lại.')
         return CHAIN_SELECTION
+
     context.user_data['chain'] = chain
     context.user_data['cancelled'] = False  # Reset cancellation flag
 
     await update.message.reply_text('Vui lòng nhập các địa chỉ ví, mỗi ví trên một dòng:')
     return WALLET_INPUT
 
+
 # Hàm kiểm tra danh sách ví
-async def wallet_checker(context: CallbackContext, wallets, chain, api_key, chain_url):
+async def wallet_checker(context: CallbackContext, wallets, chain, api_key, chain_url, token_limit=5):
     total_wallets = len(wallets)
     token_summary = {}  # Biến để lưu tổng số token
     wallets_with_tokens = 0  # Đếm số ví có token
@@ -52,7 +63,7 @@ async def wallet_checker(context: CallbackContext, wallets, chain, api_key, chai
             break
 
         try:
-            token_balances = get_token_balances(api_key, address, chain_url)
+            token_balances = get_token_balances(api_key, address, chain_url, token_limit)
             message = f"Ví {index}/{total_wallets}: {address}\n"
             if token_balances:
                 message += "Token balances:\n"
@@ -99,6 +110,14 @@ async def wallet_input(update: Update, context: CallbackContext) -> int:
     wallets = [wallet.strip() for wallet in wallets if wallet.strip()]
     logger.info("Wallets input by %s: %s", user.first_name, wallets)
 
+    if context.user_data.get('get_asset_data'):
+        # Người dùng đã chọn get_asset_data, gọi hàm get_asset_data cho mỗi ví
+        for address in wallets:
+            asset_data = get_asset_data(address)
+            await update.message.reply_text(asset_data)
+        return ConversationHandler.END
+
+    # Nếu không chọn get_asset_data, tiếp tục xử lý chain bình thường
     chain = context.user_data['chain']
     api_info = chain_apis[chain]
     api_key = api_info['api_key']
