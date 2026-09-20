@@ -1,4 +1,4 @@
-# bot_telegram
+# Web3-wallet-checker
 
 Bot Telegram viết bằng Python dùng để kiểm tra số dư ví EVM: liệt kê token ERC-20 và native coin của danh sách ví trên 6 chain thông qua API Etherscan-style, đồng thời tra nhanh tổng giá trị token (USD) của ví qua API Gate.io. Toàn bộ chức năng chạy ở dạng hội thoại Telegram: chọn chain, dán danh sách ví, nhận kết quả.
 
@@ -45,8 +45,8 @@ Mỗi chain trong dict `chain_apis` (trong `bot_api.py`) gồm: `url`, `api_key`
 1. Clone repository:
 
 ```sh
-git clone https://github.com/TungHu/bot_telegram.git
-cd bot_telegram
+git clone https://github.com/TungHu/web3-wallet-checker.git
+cd web3-wallet-checker
 ```
 
 2. Tạo môi trường ảo (khuyến nghị):
@@ -71,7 +71,7 @@ source env/bin/activate
 pip install -r requirements.txt
 ```
 
-4. Tạo file `config.py` trong thư mục `bot_telegram` - **bắt buộc**, nếu thiếu bot sẽ báo `ModuleNotFoundError: No module named 'config'`:
+4. Tạo file `config.py` trong thư mục `web3-wallet-checker` - **bắt buộc**, nếu thiếu bot sẽ báo `ModuleNotFoundError: No module named 'config'`:
 
 ```python
 # config.py - File bí mật, KHÔNG commit lên Git (đã có trong .gitignore)
@@ -90,7 +90,7 @@ BASE_API_KEY      = "..."   # https://basescan.org/myapikey
 ## Cấu trúc dự án
 
 ```text
-bot_telegram/
+web3-wallet-checker/
 |-- bot_main.py        # Tầng bot: ConversationHandler, keyboard chọn chain, wallet_checker, cancel
 |-- bot_api.py         # Tầng API: chain_apis + các hàm gọi Etherscan / Gate.io
 |-- config.py          # (tự tạo) token bot + API key - KHÔNG commit
