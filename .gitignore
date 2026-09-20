@@ -1,0 +1,12 @@
+config.py
+.vs
+__pycache__
+*.pyc
+
+# --- bo sung ---
+env/
+venv/
+.venv/
+.env
+.vscode/
+*.log
